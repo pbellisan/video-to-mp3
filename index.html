@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video to MP3 - Güvenli Dönüştürücü</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FFmpeg.wasm Library -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <!-- COI Service Worker to enable SharedArrayBuffer on GitHub Pages -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/coi-serviceworker/0.1.7/coi-serviceworker.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .drop-active {
+            border-color: #6366f1;
+            background: #f5f3ff;
+            transform: scale(1.01);
+        }
+
+        .progress-bar-fill {
+            transition: width 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex items-center justify-center p-4">
+
+    <div class="max-w-xl w-full">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-block p-3 bg-indigo-600 text-white rounded-2xl mb-4 shadow-lg shadow-indigo-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+            </div>
+            <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">MP4'ten MP3'e Dönüştür</h1>
+            <p class="text-slate-500 mt-2">Dosyalarınız tarayıcıda işlenir, sunucuya gönderilmez.</p>
+        </div>
+
+        <!-- Main Card -->
+        <div class="glass-panel rounded-[2.5rem] p-8 shadow-2xl shadow-indigo-100/50">
+            
+            <!-- Step 1: Drop Zone -->
+            <div id="drop-zone" class="border-2 border-dashed border-slate-200 rounded-3xl p-10 text-center transition-all duration-300 relative group cursor-pointer hover:border-indigo-400">
+                <input type="file" id="file-input" accept="video/mp4,video/x-m4v,video/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                
+                <div id="idle-view" class="space-y-4">
+                    <div class="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto text-slate-400 group-hover:text-indigo-500 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                    </div>
+                    <div class="space-y-1">
+                        <p class="text-lg font-bold text-slate-700">Video dosyasını buraya bırakın</p>
+                        <p class="text-sm text-slate-400">veya dosya seçmek için tıklayın (.mp4)</p>
+                    </div>
+                </div>
+
+                <!-- Step 2: File Selected View -->
+                <div id="selected-view" class="hidden space-y-4">
+                    <div class="p-4 bg-indigo-50 rounded-2xl flex items-center gap-4">
+                        <div class="bg-white p-3 rounded-xl text-indigo-600 shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 00-2 2z" />
+                            </svg>
+                        </div>
+                        <div class="text-left overflow-hidden">
+                            <p id="file-name" class="font-bold text-slate-700 truncate text-sm">video_dosyasi.mp4</p>
+                            <p id="file-size" class="text-xs text-slate-400">12.5 MB</p>
+                        </div>
+                    </div>
+                    <button id="convert-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95">
+                        MP3'e Dönüştür
+                    </button>
+                </div>
+            </div>
+
+            <!-- Processing / Progress View -->
+            <div id="process-view" class="hidden mt-8 space-y-4">
+                <div class="flex justify-between items-center text-sm font-bold">
+                    <span id="status-text" class="text-indigo-600">Dönüştürülüyor...</span>
+                    <span id="progress-text" class="text-slate-400">0%</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                    <div id="progress-bar" class="bg-indigo-600 h-full w-0 progress-bar-fill"></div>
+                </div>
+            </div>
+
+            <!-- Result View -->
+            <div id="result-view" class="hidden mt-8">
+                <div class="bg-green-50 border border-green-100 rounded-3xl p-6 text-center">
+                    <div class="w-12 h-12 bg-green-500 text-white rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <h3 class="text-green-800 font-bold text-lg mb-4">Dönüştürme Başarılı!</h3>
+                    <button id="download-btn" class="w-full bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                        MP3 Dosyasını İndir
+                    </button>
+                    <button id="reset-btn" class="mt-4 text-sm text-green-700 font-semibold hover:underline">Başka bir dosya dönüştür</button>
+                </div>
+            </div>
+
+        </div>
+
+        <p class="text-center text-slate-400 text-xs mt-8">
+            Bu uygulama FFmpeg.wasm kullanır. İşlem süresi cihazınızın performansına bağlıdır.
+        </p>
+    </div>
+
+    <script>
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        const ffmpeg = createFFmpeg({ log: false });
+
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const idleView = document.getElementById('idle-view');
+        const selectedView = document.getElementById('selected-view');
+        const fileNameText = document.getElementById('file-name');
+        const fileSizeText = document.getElementById('file-size');
+        const convertBtn = document.getElementById('convert-btn');
+        const processView = document.getElementById('process-view');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const resultView = document.getElementById('result-view');
+        const downloadBtn = document.getElementById('download-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const statusText = document.getElementById('status-text');
+
+        let selectedFile = null;
+        let mp3Data = null;
+
+        // Drag & Drop
+        ['dragenter', 'dragover'].forEach(e => {
+            dropZone.addEventListener(e, (ev) => {
+                ev.preventDefault();
+                dropZone.classList.add('drop-active');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(e => {
+            dropZone.addEventListener(e, (ev) => {
+                ev.preventDefault();
+                dropZone.classList.remove('drop-active');
+            });
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleFile(file);
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            fileNameText.textContent = file.name;
+            fileSizeText.textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+            
+            idleView.classList.add('hidden');
+            selectedView.classList.remove('hidden');
+            resultView.classList.add('hidden');
+        }
+
+        convertBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            selectedView.classList.add('hidden');
+            processView.classList.remove('hidden');
+            convertBtn.disabled = true;
+
+            try {
+                if (!ffmpeg.isLoaded()) {
+                    statusText.textContent = "Kütüphane yükleniyor...";
+                    await ffmpeg.load();
+                }
+
+                statusText.textContent = "Dönüştürülüyor...";
+                
+                ffmpeg.setProgress(({ ratio }) => {
+                    const percent = Math.round(ratio * 100);
+                    progressBar.style.width = percent + '%';
+                    progressText.textContent = percent + '%';
+                });
+
+                const inputName = 'input.mp4';
+                const outputName = 'output.mp3';
+
+                ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
+
+                // FFmpeg command to extract audio: -vn (no video), -ab 128k (bitrate)
+                await ffmpeg.run('-i', inputName, '-vn', '-ab', '128k', '-ar', '44100', '-f', 'mp3', outputName);
+
+                const data = ffmpeg.FS('readFile', outputName);
+                mp3Data = new Blob([data.buffer], { type: 'audio/mp3' });
+
+                processView.classList.add('hidden');
+                resultView.classList.remove('hidden');
+
+                // Cleanup
+                ffmpeg.FS('unlink', inputName);
+                ffmpeg.FS('unlink', outputName);
+
+            } catch (error) {
+                console.error(error);
+                alert("Dönüştürme sırasında bir hata oluştu. Lütfen dosyanın bozuk olmadığından emin olun.");
+                reset();
+            }
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            if (!mp3Data) return;
+            const url = URL.createObjectURL(mp3Data);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = selectedFile.name.split('.').slice(0, -1).join('.') + '.mp3';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        resetBtn.addEventListener('click', reset);
+
+        function reset() {
+            selectedFile = null;
+            mp3Data = null;
+            fileInput.value = '';
+            idleView.classList.remove('hidden');
+            selectedView.classList.add('hidden');
+            processView.classList.add('hidden');
+            resultView.classList.add('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = '0%';
+            convertBtn.disabled = false;
+        }
+    </script>
+</body>
+</html>
